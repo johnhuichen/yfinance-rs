@@ -123,6 +123,41 @@ async fn fast_info_derives_last_price() {
 }
 
 #[tokio::test]
+async fn quote_v7_bid_ask_forward_dividend_yield() {
+    let server = MockServer::start();
+
+    let mock = server.mock(|when, then| {
+        when.method(GET)
+            .path("/v7/finance/quote")
+            .query_param("symbols", "AAPL");
+        then.status(200)
+            .header("content-type", "application/json")
+            .body(crate::common::fixture("quote_v7", "AAPL", "json"));
+    });
+
+    let client = YfClient::builder()
+        .base_quote_v7(Url::parse(&format!("{}/v7/finance/quote", server.base_url())).unwrap())
+        .build()
+        .unwrap();
+    let ticker = Ticker::new(&client, "AAPL");
+
+    let q = ticker.quote().await.unwrap();
+    mock.assert();
+
+    assert!((money_to_f64(&q.bid.unwrap()) - 255.72).abs() < 1e-9, "bid");
+    assert!((money_to_f64(&q.ask.unwrap()) - 269.86).abs() < 1e-9, "ask");
+    assert!(
+        (money_to_f64(&q.forward_dividend.unwrap()) - 1.04).abs() < 1e-9,
+        "forward_dividend"
+    );
+    assert_eq!(
+        q.forward_yield,
+        rust_decimal::Decimal::try_from(0.39_f64).ok(),
+        "forward_yield"
+    );
+}
+
+#[tokio::test]
 #[ignore = "exercise live Yahoo Finance API"]
 async fn live_quote_smoke() {
     if std::env::var("YF_LIVE").ok().as_deref() != Some("1")

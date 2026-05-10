@@ -70,6 +70,19 @@ async fn offline_info_uses_recorded_fixtures() {
             .body(crate::common::fixture("esg_api_esgScores", sym, "json"));
     });
 
+    // 6. Mock for defaultKeyStatistics -> reuses the ESG fixture body (a valid quoteSummary
+    // envelope that lacks a `defaultKeyStatistics` key). The response parses successfully as
+    // `KeyStatisticsResult`, but `default_key_statistics` is `None` because the key is absent,
+    // so beta ends up `None` via the `and_then` chain.
+    let key_stats_mock = server.mock(|when, then| {
+        when.method(GET)
+            .path(format!("/v10/finance/quoteSummary/{sym}"))
+            .query_param("modules", "defaultKeyStatistics");
+        then.status(200)
+            .header("content-type", "application/json")
+            .body(crate::common::fixture("esg_api_esgScores", sym, "json"));
+    });
+
     let client = YfClient::builder()
         .base_quote_v7(Url::parse(&format!("{}/v7/finance/quote", server.base_url())).unwrap())
         .base_quote_api(
@@ -93,6 +106,7 @@ async fn offline_info_uses_recorded_fixtures() {
     price_target_mock.assert();
     rec_summary_mock.assert();
     esg_mock.assert();
+    key_stats_mock.assert();
 
     // Verify data aggregation with more robust checks. Run recorders if these fail.
     match info.instrument.id() {
@@ -102,4 +116,5 @@ async fn offline_info_uses_recorded_fixtures() {
         }
     }
     assert!(info.last.is_some(), "Price missing from quote fixture.");
+    assert_eq!(info.beta, None, "Beta should be None when defaultKeyStatistics key is absent");
 }

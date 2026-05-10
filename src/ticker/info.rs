@@ -2,11 +2,23 @@ use crate::{
     YfClient, YfError, analysis,
     core::client::{CacheMode, RetryConfig},
     core::conversions::i64_to_datetime,
+    core::wire::RawNum,
     esg,
     profile::Profile,
 };
 use paft::aggregates::Info;
 use paft::domain::{AssetKind, Instrument};
+
+#[derive(serde::Deserialize)]
+struct DefaultKeyStatistics {
+    beta: Option<RawNum<f64>>,
+}
+
+#[derive(serde::Deserialize)]
+struct KeyStatisticsResult {
+    #[serde(rename = "defaultKeyStatistics")]
+    default_key_statistics: Option<DefaultKeyStatistics>,
+}
 
 /// Private helper to handle optional async results, logging errors in debug mode.
 fn log_err_async<T>(res: Result<T, YfError>, name: &str, symbol: &str) -> Option<T> {
@@ -27,9 +39,14 @@ pub(super) async fn fetch_info(
     cache_mode: CacheMode,
     retry_override: Option<&RetryConfig>,
 ) -> Result<Info, YfError> {
-    let (quote, profile, price_target, rec_summary, esg_summary) =
+    let (quote, profile, price_target, rec_summary, esg_summary, key_stats) =
         Box::pin(fetch_info_parts(client, symbol, cache_mode, retry_override)).await?;
     let isin = extract_isin(&profile);
+    let beta = key_stats
+        .and_then(|ks| ks.default_key_statistics)
+        .and_then(|dks| dks.beta)
+        .and_then(|r| r.raw)
+        .and_then(|v| paft::Decimal::try_from(v).ok());
     Ok(assemble_info(
         symbol,
         quote.as_ref(),
@@ -37,6 +54,7 @@ pub(super) async fn fetch_info(
         price_target,
         rec_summary,
         esg_summary.and_then(|s| s.scores),
+        beta,
     ))
 }
 
@@ -52,10 +70,11 @@ async fn fetch_info_parts(
         Option<paft::fundamentals::analysis::PriceTarget>,
         Option<paft::fundamentals::analysis::RecommendationSummary>,
         Option<paft::fundamentals::esg::EsgSummary>,
+        Option<KeyStatisticsResult>,
     ),
     YfError,
 > {
-    let (quote_res, profile_res, price_target_res, rec_summary_res, esg_res) = tokio::join!(
+    let (quote_res, profile_res, price_target_res, rec_summary_res, esg_res, key_stats_res) = tokio::join!(
         crate::ticker::quote::fetch_quote(client, symbol, cache_mode, retry_override),
         crate::profile::load_profile(client, symbol),
         analysis::AnalysisBuilder::new(client, symbol)
@@ -69,7 +88,15 @@ async fn fetch_info_parts(
         esg::EsgBuilder::new(client, symbol)
             .cache_mode(cache_mode)
             .retry_policy(retry_override.cloned())
-            .fetch()
+            .fetch(),
+        crate::core::quotesummary::fetch_module_result::<KeyStatisticsResult>(
+            client,
+            symbol,
+            "defaultKeyStatistics",
+            "defaultKeyStatistics",
+            cache_mode,
+            retry_override,
+        ),
     );
 
     let profile = profile_res?;
@@ -77,7 +104,8 @@ async fn fetch_info_parts(
     let price_target = log_err_async(price_target_res, "price_target", symbol);
     let rec_summary = log_err_async(rec_summary_res, "recommendations_summary", symbol);
     let esg_summary = log_err_async(esg_res, "esg_scores", symbol);
-    Ok((quote, profile, price_target, rec_summary, esg_summary))
+    let key_stats = log_err_async(key_stats_res, "defaultKeyStatistics", symbol);
+    Ok((quote, profile, price_target, rec_summary, esg_summary, key_stats))
 }
 
 fn extract_isin(profile: &Profile) -> Option<paft::domain::Isin> {
@@ -94,6 +122,7 @@ fn assemble_info(
     price_target: Option<paft::fundamentals::analysis::PriceTarget>,
     rec_summary: Option<paft::fundamentals::analysis::RecommendationSummary>,
     esg_scores: Option<paft::fundamentals::esg::EsgScores>,
+    beta: Option<paft::Decimal>,
 ) -> Info {
     Info {
         instrument: quote.map_or_else(
@@ -130,6 +159,11 @@ fn assemble_info(
         pe_ttm: quote.and_then(|q| q.pe_ttm),
         dividend_yield: quote.and_then(|q| q.dividend_yield),
         ex_dividend_date: quote.and_then(|q| q.ex_dividend_date),
+        bid: quote.and_then(|q| q.bid.clone()),
+        ask: quote.and_then(|q| q.ask.clone()),
+        beta,
+        forward_dividend: quote.and_then(|q| q.forward_dividend.clone()),
+        forward_yield: quote.and_then(|q| q.forward_yield),
         as_of: Some(i64_to_datetime(chrono::Utc::now().timestamp())),
         price_target,
         recommendation_summary: rec_summary,

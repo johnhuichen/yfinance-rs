@@ -8,6 +8,8 @@ mod capital_gains;
 mod fast_info;
 #[path = "ticker/history_convenience.rs"]
 mod history_convenience;
+#[path = "ticker/info_beta.rs"]
+mod info_beta;
 #[path = "ticker/info_live.rs"]
 mod info_live;
 #[path = "ticker/info_offline.rs"]

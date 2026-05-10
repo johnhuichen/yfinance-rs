@@ -65,6 +65,12 @@ pub struct V7QuoteNode {
     pub(crate) trailing_annual_dividend_yield: Option<f64>,
     #[serde(rename = "dividendDate")]
     pub(crate) dividend_date: Option<i64>,
+    pub(crate) bid: Option<f64>,
+    pub(crate) ask: Option<f64>,
+    #[serde(rename = "dividendRate")]
+    pub(crate) dividend_rate: Option<f64>,
+    #[serde(rename = "dividendYield")]
+    pub(crate) dividend_yield: Option<f64>,
     pub(crate) currency: Option<String>,
     #[serde(rename = "fullExchangeName")]
     pub(crate) full_exchange_name: Option<String>,
@@ -284,6 +290,14 @@ impl From<V7QuoteNode> for Quote {
                 .trailing_annual_dividend_yield
                 .and_then(|v| paft::Decimal::try_from(v).ok()),
             ex_dividend_date,
+            bid: n.bid.map(|v| f64_to_money_with_currency_str(v, currency)),
+            ask: n.ask.map(|v| f64_to_money_with_currency_str(v, currency)),
+            forward_dividend: n
+                .dividend_rate
+                .map(|v| f64_to_money_with_currency_str(v, currency)),
+            forward_yield: n
+                .dividend_yield
+                .and_then(|v| paft::Decimal::try_from(v).ok()),
             exchange,
             market_state: n.market_state.and_then(|s| s.parse().ok()),
         }
