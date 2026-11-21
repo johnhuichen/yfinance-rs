@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Balance sheets now fill `current_debt` from Yahoo's `CurrentDebt` series.
+- Income statements now fill `net_income_from_continuing_operations` from
+  Yahoo's `NetIncomeFromContinuingOperations` series.
+- Cash flow statements now fill `cash_dividends_paid` from Yahoo's
+  `CashDividendsPaid` series.
+- The other statement fields added in the `paft` fork stay `None`.
+
+### Changed
+
+- `paft` is now a path dependency on the local fork (`../paft/paft`).
+
 ## [0.9.1] - 2026-07-11
 
 ### Fixed
